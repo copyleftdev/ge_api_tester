@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+/tmp
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# API Server
+/api/*.log
+/tmp/api_database.db
+
+# Harness
+/harness/output/
+/harness/interesting_payloads/
+/harness/logs/
+/harness/generations/
+/harness/stats/
+
+# Virtual Environment
+venv/
+ENV/
+.env
+.venv
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Authentication
+*.pem
+*.key
+*token*
+secrets.yml
+*secret*
+.env
+credentials.json

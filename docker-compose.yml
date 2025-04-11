@@ -1,0 +1,40 @@
+# docker-compose.yml
+# Specifies the Docker Compose file version.
+version: "3.9"
+
+# Defines the services (containers) to be run.
+services:
+  # The API service definition.
+  api:
+    # Specifies how to build the image for this service.
+    build:
+      # The build context directory (contains the Dockerfile and source code).
+      context: ./api
+    # Maps port 5000 on the host to port 5000 in the container.
+    ports:
+      - "5000:5000"
+    # Configures the container to restart automatically unless explicitly stopped.
+    restart: unless-stopped
+    # Provides a friendly name for the container (optional)
+    container_name: ge_api
+
+  # The evolution harness service definition.
+  harness:
+    # Specifies how to build the image for this service.
+    build:
+      # The build context is the root project directory (ge_api_tester).
+      # This allows the harness Dockerfile to access requirements.txt and its own source.
+      context: .
+      # Specifies the Dockerfile to use within the context.
+      dockerfile: harness/Dockerfile
+    # Ensures the 'api' service is started before the 'harness' service.
+    depends_on:
+      - api
+    # Environment variables for the harness container.
+    environment:
+      # Ensures Python outputs logs directly without buffering, useful for seeing logs in real-time.
+      - PYTHONUNBUFFERED=1
+    # Configures the container to restart if it exits due to an error.
+    restart: on-failure
+    # Provides a friendly name for the container (optional)
+    container_name: ge_harness

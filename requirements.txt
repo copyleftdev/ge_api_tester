@@ -1,0 +1,8 @@
+# requirements.txt
+flask
+requests
+deap
+pytest
+pytest-cov
+pandas
+matplotlib

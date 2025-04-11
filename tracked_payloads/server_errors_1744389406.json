@@ -1,0 +1,163 @@
+[
+  {
+    "timestamp": "2025-04-11T09:36:41.474180",
+    "payload": {
+      "name": "P7fzmUj3",
+      "age": 36,
+      "email": "ymgQRdI@8duR.net",
+      "zipcode": "90210",
+      "hobbies": "reading,travel,biking"
+    },
+    "response": {
+      "data": {
+        "error": "Database connection error"
+      },
+      "time": 0.007552623748779297,
+      "status_code": 500,
+      "headers": {
+        "Server": "Werkzeug/3.0.6 Python/3.12.6",
+        "Date": "Fri, 11 Apr 2025 16:36:41 GMT",
+        "Content-Type": "application/json",
+        "Content-Length": "38",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
+        "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS",
+        "Connection": "close"
+      }
+    }
+  },
+  {
+    "timestamp": "2025-04-11T09:36:43.519141",
+    "payload": {
+      "name": "w13D2bA",
+      "email": "kqTNmcJt@pjiVcKq.co",
+      "hobbies": [
+        "fishing"
+      ],
+      "memleak": true
+    },
+    "response": {
+      "data": {
+        "error": "Server resource exhausted"
+      },
+      "time": 2.0172877311706543,
+      "status_code": 503,
+      "headers": {
+        "Server": "Werkzeug/3.0.6 Python/3.12.6",
+        "Date": "Fri, 11 Apr 2025 16:36:43 GMT",
+        "Content-Type": "application/json",
+        "Content-Length": "38",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
+        "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS",
+        "Connection": "close"
+      }
+    }
+  },
+  {
+    "timestamp": "2025-04-11T09:36:45.680915",
+    "payload": {
+      "name": "IZDMQePfwtwhYt3",
+      "age": "91",
+      "zipcode": "67257",
+      "hobbies": [
+        "dancing",
+        "photography",
+        "writing"
+      ],
+      "memleak": true
+    },
+    "response": {
+      "data": {
+        "error": "Server resource exhausted"
+      },
+      "time": 2.0148701667785645,
+      "status_code": 503,
+      "headers": {
+        "Server": "Werkzeug/3.0.6 Python/3.12.6",
+        "Date": "Fri, 11 Apr 2025 16:36:45 GMT",
+        "Content-Type": "application/json",
+        "Content-Length": "38",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
+        "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS",
+        "Connection": "close"
+      }
+    }
+  },
+  {
+    "timestamp": "2025-04-11T09:36:46.907123",
+    "payload": {
+      "username": "8JSwOahb",
+      "hobbies": [
+        "spamming",
+        "hiking",
+        "gardening"
+      ]
+    },
+    "response": {
+      "data": {
+        "raw_text": "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>\n"
+      },
+      "time": 0.004629373550415039,
+      "status_code": 500,
+      "headers": {
+        "Server": "Werkzeug/3.0.6 Python/3.12.6",
+        "Date": "Fri, 11 Apr 2025 16:36:46 GMT",
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": "265",
+        "Connection": "close"
+      }
+    }
+  },
+  {
+    "timestamp": "2025-04-11T09:36:46.911025",
+    "payload": {
+      "hobbies": [
+        "spamming",
+        "hiking",
+        "gardening"
+      ],
+      "password": "fbxAtrno9R"
+    },
+    "response": {
+      "data": {
+        "raw_text": "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>\n"
+      },
+      "time": 0.0037839412689208984,
+      "status_code": 500,
+      "headers": {
+        "Server": "Werkzeug/3.0.6 Python/3.12.6",
+        "Date": "Fri, 11 Apr 2025 16:36:46 GMT",
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": "265",
+        "Connection": "close"
+      }
+    }
+  },
+  {
+    "timestamp": "2025-04-11T09:36:46.915200",
+    "payload": {
+      "hobbies": [
+        "spamming",
+        "hiking",
+        "gardening"
+      ],
+      "password": "nDrrfc"
+    },
+    "response": {
+      "data": {
+        "raw_text": "<!doctype html>\n<html lang=en>\n<title>500 Internal Server Error</title>\n<h1>Internal Server Error</h1>\n<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>\n"
+      },
+      "time": 0.00405430793762207,
+      "status_code": 500,
+      "headers": {
+        "Server": "Werkzeug/3.0.6 Python/3.12.6",
+        "Date": "Fri, 11 Apr 2025 16:36:46 GMT",
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": "265",
+        "Connection": "close"
+      }
+    }
+  }
+]

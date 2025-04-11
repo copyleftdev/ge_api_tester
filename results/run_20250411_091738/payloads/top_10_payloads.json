@@ -1,0 +1,99 @@
+[
+  {
+    "payload": {
+      "name": "WHpPDYJQg",
+      "memleak": true
+    },
+    "fitness": 0.8
+  },
+  {
+    "payload": {
+      "name": "WHpPDYJQg",
+      "memleak": true
+    },
+    "fitness": 0.8
+  },
+  {
+    "payload": {
+      "memleak": true,
+      "hobbies": [
+        "hiking",
+        "sports",
+        "travel",
+        "painting",
+        "reading"
+      ]
+    },
+    "fitness": 0.36188832283020017
+  },
+  {
+    "payload": {
+      "memleak": true,
+      "hobbies": [
+        "hiking",
+        "sports",
+        "travel",
+        "painting",
+        "reading"
+      ]
+    },
+    "fitness": 0.3618184661865234
+  },
+  {
+    "payload": {
+      "memleak": true,
+      "hobbies": [
+        "hiking",
+        "sports",
+        "travel",
+        "painting",
+        "reading"
+      ]
+    },
+    "fitness": 0.3618184661865234
+  },
+  {
+    "payload": {
+      "memleak": true,
+      "hobbies": [
+        "hiking",
+        "sports",
+        "travel",
+        "painting",
+        "reading"
+      ]
+    },
+    "fitness": 0.3618184661865234
+  },
+  {
+    "payload": {
+      "memleak": true,
+      "hobbies": [
+        "hiking",
+        "sports",
+        "travel",
+        "painting",
+        "reading"
+      ]
+    },
+    "fitness": 0.3618184661865234
+  },
+  {
+    "payload": {
+      "memleak": true
+    },
+    "fitness": 0.36156874656677246
+  },
+  {
+    "payload": {
+      "memleak": true
+    },
+    "fitness": 0.36156874656677246
+  },
+  {
+    "payload": {
+      "memleak": true
+    },
+    "fitness": 0.36156874656677246
+  }
+]
