@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/ge_logo.png" alt="Genetic Evolution API Tester Logo" width="500">
+</div>
+
 # Genetic Evolution API Tester
 
 This project demonstrates using a genetic algorithm (GA) powered by the DEAP library to automatically generate and evolve test payloads for a simple Flask API. The entire setup runs within Docker containers orchestrated by Docker Compose, allowing the API and the testing harness to run in parallel and isolated environments.

@@ -1,6 +1,3 @@
-"""
-Enhanced API Server with more realistic features and endpoints
-"""
 import json
 import time
 import random
@@ -14,21 +11,31 @@ from flask import Flask, request, jsonify, g, make_response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Rate limiting configuration
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["100 per minute", "3000 per hour"],
-    storage_uri="memory://",
-)
+# Flask-Limiter configuration
+# Check if we're running in Docker and set higher limits accordingly
+if os.path.exists("/.dockerenv"):
+    # Much higher limits for Docker testing environment
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["500 per minute", "10000 per hour"],
+        storage_uri="memory://",
+    )
+    logger.info("Running in Docker: using high rate limits for testing")
+else:
+    # Standard limits for non-Docker environments
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["200 per minute", "5000 per hour"],
+        storage_uri="memory://",
+    )
 
-# Initialize database
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
@@ -44,11 +51,9 @@ def close_db(exception):
         db.close()
 
 def init_db():
-    """Initialize the database by creating tables if they don't exist."""
     db = get_db()
     cursor = db.cursor()
     
-    # Create users table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,7 +65,6 @@ def init_db():
     )
     ''')
     
-    # Create hobbies table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hobbies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +74,6 @@ def init_db():
     )
     ''')
     
-    # Create access logs table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS access_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +87,6 @@ def init_db():
     
     db.commit()
     
-    # For testing purposes, add a test user
     if app.config.get('TESTING', False):
         try:
             cursor.execute(
@@ -93,26 +95,20 @@ def init_db():
             )
             db.commit()
         except sqlite3.IntegrityError:
-            # User already exists, which is fine
             pass
 
-# Initialize database when the app starts
 with app.app_context():
     init_db()
 
-# Request tracking middleware
 @app.before_request
 def before_request():
     g.start_time = time.time()
 
 @app.after_request
 def after_request(response):
-    # Skip logging for OPTIONS requests
     if request.method != 'OPTIONS':
-        # Calculate response time - safely check if start_time exists
         response_time = time.time() - getattr(g, 'start_time', time.time())
         
-        # Log the request to database
         try:
             db = get_db()
             cursor = db.cursor()
@@ -124,115 +120,77 @@ def after_request(response):
         except Exception as e:
             logger.error(f"Error logging request: {str(e)}")
         
-        # Add CORS headers
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     
     return response
 
-# Add helper functions for token validation
 def validate_token(token):
-    """
-    Validate an authentication token
-    
-    Args:
-        token: The authentication token to validate
-        
-    Returns:
-        Tuple containing (is_valid, user_id)
-    """
     if not token:
         return False, None
     
-    # For a proper implementation, we would verify the JWT signature
-    # and decode the payload to extract user information
+    token_parts = token.split('.')
+    if len(token_parts) != 3:
+        return False, None
     
-    # Parse our simplified token format
+    payload = token_parts[1]
+    payload_parts = payload.split(':')
+    if len(payload_parts) != 2:
+        return False, None
+    
     try:
-        # Skip the header and signature parts
-        parts = token.split('.')
-        if len(parts) != 3:
-            return False, None
-        
-        payload = parts[1]
-        
-        # Parse the payload (user_id:timestamp)
-        payload_parts = payload.split(':')
-        if len(payload_parts) != 2:
-            return False, None
-        
         user_id = int(payload_parts[0])
         timestamp = int(payload_parts[1])
         
-        # Check if token is expired (1 hour validity)
         current_time = int(time.time())
-        if current_time - timestamp > 3600:
+        if current_time > timestamp + 3600:
             return False, None
         
         return True, user_id
-    except Exception as e:
-        logger.error(f"Token validation error: {str(e)}")
+    except (ValueError, TypeError):
         return False, None
 
 def get_auth_token():
-    """Extract authentication token from request headers"""
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return None
-    
-    # Format should be "Bearer <token>"
-    parts = auth_header.split()
-    if len(parts) != 2 or parts[0].lower() != 'bearer':
-        return None
-    
-    return parts[1]
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        return auth_header[7:]  
+    return None
 
 def requires_auth(f):
-    """Decorator to require authentication for an endpoint"""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         token = get_auth_token()
-        
-        if not token:
-            return jsonify({"error": "Authorization required"}), 401
-        
         is_valid, user_id = validate_token(token)
-        if not is_valid:
-            return jsonify({"error": "Invalid or expired token"}), 401
         
-        # Add user_id to kwargs
-        kwargs['auth_user_id'] = user_id
-        return f(*args, **kwargs)
+        if not is_valid:
+            return jsonify({"error": "Invalid or missing authentication token"}), 401
+        
+        return f(user_id, *args, **kwargs)
     
     return decorated
 
-@app.route('/api/health', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
-    """Simple health check endpoint"""
     return jsonify({
-        "status": "ok",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat()
     })
 
 @app.route('/api/auth/token', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("50 per minute" if not os.path.exists("/.dockerenv") else "1000 per minute")
 def get_token():
-    """Authentication endpoint that verifies user credentials and generates tokens"""
     data = request.json
     
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
-    # Basic validation
     if 'username' not in data or 'password' not in data:
         return jsonify({"error": "Username and password required"}), 400
     
     username = data['username']
     password = data['password']
     
-    # Password complexity check
     if len(password) < 8:
         return jsonify({"error": "Invalid credentials"}), 401
     
@@ -240,14 +198,11 @@ def get_token():
         db = get_db()
         cursor = db.cursor()
         
-        # For testing environment, accept any valid credentials
         if app.config.get('TESTING', False):
-            # Get any user from the database for testing
             cursor.execute("SELECT * FROM users LIMIT 1")
             user = cursor.fetchone()
             
             if not user:
-                # Create a test user if none exists
                 cursor.execute(
                     "INSERT INTO users (name, email, age, created_at) VALUES (?, ?, ?, ?)",
                     ("Test User", "test@example.com", 30, datetime.now().isoformat())
@@ -257,43 +212,33 @@ def get_token():
                 cursor.execute("SELECT * FROM users LIMIT 1")
                 user = cursor.fetchone()
         else:
-            # Normal production authentication flow
-            # Check if user exists in the database
             cursor.execute("SELECT * FROM users WHERE email = ?", (username,))
             user = cursor.fetchone()
             
-            # If user doesn't exist, create one for testing purposes
             if not user:
-                # For predefined test credentials, simulate specific responses
                 if username == 'admin' and 'admin' in password:
                     return jsonify({"error": "Account locked - too many login attempts"}), 403
                 
-                # Auto-register user (for testing purposes)
                 cursor.execute(
                     "INSERT INTO users (name, email, age, created_at) VALUES (?, ?, ?, ?)",
                     (username, username, random.randint(18, 65), datetime.now().isoformat())
                 )
                 db.commit()
                 
-                # Get the newly created user
                 cursor.execute("SELECT * FROM users WHERE email = ?", (username,))
                 user = cursor.fetchone()
                 
                 if not user:
                     return jsonify({"error": "Failed to create user account"}), 500
         
-        # Generate token with user information encoded
         user_id = user['id']
         timestamp = int(time.time())
-        # More realistic token structure (still not using JWT but follows similar format)
         token_payload = f"{user_id}:{timestamp}"
         token = f"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.{token_payload}.signature"
         
-        # Token lifetime in seconds (1 hour)
         expires_in = 3600
         expires_at = timestamp + expires_in
         
-        # Log successful login
         try:
             cursor.execute(
                 "INSERT INTO access_logs (endpoint, ip_address, status_code, response_time) VALUES (?, ?, ?, ?)",
@@ -315,33 +260,25 @@ def get_token():
         logger.error(f"Authentication error: {str(e)}")
         return jsonify({"error": "Authentication failed"}), 500
 
-# --- User Management Endpoints ---
-
 @app.route('/api/users', methods=['POST'])
-@limiter.limit("30 per minute")
 @requires_auth
 def create_user(auth_user_id):
-    """Create a new user"""
     data = request.json
     
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
-    # Validate required fields
-    if 'name' not in data:
+    if 'name' not in data or not data['name']:
         return jsonify({"error": "Name is required"}), 400
     
-    # Validate name length
-    if len(data.get('name', '')) < 3 or len(data.get('name', '')) > 50:
+    if len(data['name']) < 3 or len(data['name']) > 50:
         return jsonify({"error": "Name must be between 3 and 50 characters"}), 400
     
-    # Validate email format if provided
     if 'email' in data and data['email']:
         email_pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
         if not re.match(email_pattern, data['email']):
             return jsonify({"error": "Invalid email format"}), 400
     
-    # Validate age if provided
     if 'age' in data and data['age'] is not None:
         try:
             age = int(data['age'])
@@ -350,58 +287,25 @@ def create_user(auth_user_id):
         except ValueError:
             return jsonify({"error": "Age must be a valid number"}), 400
     
-    # Validate zipcode if provided
-    if 'zipcode' in data and data['zipcode']:
-        # Specific zipcodes trigger server errors (simulating DB issues)
-        if data['zipcode'] == '90210':
-            return jsonify({"error": "Database connection error"}), 500
-        
-        # Check zipcode format (basic US format)
-        if not re.match(r'^\d{5}(-\d{4})?$', data['zipcode']):
-            return jsonify({"error": "Invalid US zipcode format"}), 400
-    
-    # Validate hobbies if provided
-    if 'hobbies' in data and data['hobbies']:
-        if not isinstance(data['hobbies'], list):
-            return jsonify({"error": "Hobbies must be a list"}), 400
-        
-        # Check for restricted hobbies
-        restricted_hobbies = ['hacking', 'fraud', 'illegal activities']
-        for hobby in data['hobbies']:
-            if any(restricted in hobby.lower() for restricted in restricted_hobbies):
-                return jsonify({"error": "One or more hobbies are restricted"}), 400
-    
-    # SQL Injection Simulation
-    if 'name' in data and "'" in data['name']:
-        if 'DROP TABLE' in data['name'].upper() or 'DELETE FROM' in data['name'].upper():
-            # Simulate SQL injection vulnerability
-            return jsonify({"error": "SQL syntax error"}), 500
-    
-    # Memory leak simulation
-    if 'memleak' in data and data['memleak'] == True:
-        # Just simulate a memory leak with a slow response
-        time.sleep(2)
-        return jsonify({"error": "Server resource exhausted"}), 503
-    
-    # Random server error (5% chance)
-    if random.random() < 0.05:
-        return jsonify({"error": "Internal server error"}), 500
-    
     try:
-        # Save user to database
         db = get_db()
         cursor = db.cursor()
         
-        # Insert user record
+        name = data['name']
+        email = data.get('email')
+        age = data.get('age')
+        zipcode = data.get('zipcode')
+        hobbies = data.get('hobbies', [])
+        
         cursor.execute(
-            "INSERT INTO users (name, email, age, zipcode) VALUES (?, ?, ?, ?)",
-            (data.get('name'), data.get('email'), data.get('age'), data.get('zipcode'))
+            "INSERT INTO users (name, email, age, zipcode, created_at) VALUES (?, ?, ?, ?, ?)",
+            (name, email, age, zipcode, datetime.now().isoformat())
         )
+        
         user_id = cursor.lastrowid
         
-        # Insert hobbies if provided
-        if 'hobbies' in data and data['hobbies']:
-            for hobby in data['hobbies']:
+        if hobbies:
+            for hobby in hobbies:
                 cursor.execute(
                     "INSERT INTO hobbies (user_id, hobby) VALUES (?, ?)",
                     (user_id, hobby)
@@ -409,14 +313,13 @@ def create_user(auth_user_id):
         
         db.commit()
         
-        # Return the created user with fake id
         return jsonify({
             "id": user_id,
-            "name": data.get('name'),
-            "email": data.get('email'),
-            "age": data.get('age'),
-            "zipcode": data.get('zipcode'),
-            "hobbies": data.get('hobbies', []),
+            "name": name,
+            "email": email,
+            "age": age,
+            "zipcode": zipcode,
+            "hobbies": hobbies,
             "created_at": datetime.now().isoformat()
         }), 201
         
@@ -429,23 +332,19 @@ def create_user(auth_user_id):
 @app.route('/api/users/<int:user_id>', methods=['GET'])
 @requires_auth
 def get_user(auth_user_id, user_id):
-    """Get user by ID"""
     try:
         db = get_db()
         cursor = db.cursor()
         
-        # Get user
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
         
         if not user:
             return jsonify({"error": "User not found"}), 404
         
-        # Get user's hobbies
         cursor.execute("SELECT hobby FROM hobbies WHERE user_id = ?", (user_id,))
         hobbies = [row[0] for row in cursor.fetchall()]
         
-        # Return user data
         return jsonify({
             "id": user['id'],
             "name": user['name'],
@@ -457,33 +356,28 @@ def get_user(auth_user_id, user_id):
         })
         
     except Exception as e:
-        logger.error(f"Error getting user {user_id}: {str(e)}")
+        logger.error(f"Error retrieving user {user_id}: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/api/users', methods=['GET'])
 @requires_auth
 def list_users(auth_user_id):
-    """List all users with pagination"""
     try:
-        page = request.args.get('page', 1, type=int)
-        limit = min(request.args.get('limit', 10, type=int), 100)  # Cap at 100
-        offset = (page - 1) * limit
-        
         db = get_db()
         cursor = db.cursor()
         
-        # Get users with pagination
+        page = request.args.get('page', 1, type=int)
+        limit = min(request.args.get('limit', 10, type=int), 100)  
+        offset = (page - 1) * limit
+        
         cursor.execute("SELECT * FROM users LIMIT ? OFFSET ?", (limit, offset))
         users = cursor.fetchall()
         
-        # Count total users
         cursor.execute("SELECT COUNT(*) FROM users")
         total = cursor.fetchone()[0]
         
-        # Process user data
         result = []
         for user in users:
-            # Get user's hobbies
             cursor.execute("SELECT hobby FROM hobbies WHERE user_id = ?", (user['id'],))
             hobbies = [row[0] for row in cursor.fetchall()]
             
@@ -497,13 +391,14 @@ def list_users(auth_user_id):
                 "created_at": user['created_at']
             })
         
-        # Return paginated results
         return jsonify({
             "users": result,
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "pages": (total + limit - 1) // limit  # Ceiling division
+            "pagination": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": (total + limit - 1) // limit  
+            }
         })
         
     except Exception as e:
@@ -513,7 +408,6 @@ def list_users(auth_user_id):
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
 @requires_auth
 def update_user(auth_user_id, user_id):
-    """Update an existing user"""
     data = request.json
     
     if not data:
@@ -523,14 +417,12 @@ def update_user(auth_user_id, user_id):
         db = get_db()
         cursor = db.cursor()
         
-        # Check if user exists
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
         
         if not user:
             return jsonify({"error": "User not found"}), 404
         
-        # Validate fields same as create
         if 'name' in data:
             if len(data['name']) < 3 or len(data['name']) > 50:
                 return jsonify({"error": "Name must be between 3 and 50 characters"}), 400
@@ -548,7 +440,6 @@ def update_user(auth_user_id, user_id):
             except ValueError:
                 return jsonify({"error": "Age must be a valid number"}), 400
         
-        # Build update SQL
         update_fields = []
         values = []
         
@@ -568,20 +459,15 @@ def update_user(auth_user_id, user_id):
             update_fields.append("zipcode = ?")
             values.append(data['zipcode'])
         
-        # Add user_id to values
         values.append(user_id)
         
-        # Update user if there are fields to update
         if update_fields:
             sql = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
             cursor.execute(sql, values)
         
-        # Update hobbies if provided
         if 'hobbies' in data:
-            # Delete existing hobbies
             cursor.execute("DELETE FROM hobbies WHERE user_id = ?", (user_id,))
             
-            # Insert new hobbies
             for hobby in data['hobbies']:
                 cursor.execute(
                     "INSERT INTO hobbies (user_id, hobby) VALUES (?, ?)",
@@ -590,15 +476,12 @@ def update_user(auth_user_id, user_id):
         
         db.commit()
         
-        # Get updated user
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         updated_user = cursor.fetchone()
         
-        # Get updated hobbies
         cursor.execute("SELECT hobby FROM hobbies WHERE user_id = ?", (user_id,))
         hobbies = [row[0] for row in cursor.fetchall()]
         
-        # Return updated user
         return jsonify({
             "id": updated_user['id'],
             "name": updated_user['name'],
@@ -618,22 +501,18 @@ def update_user(auth_user_id, user_id):
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @requires_auth
 def delete_user(auth_user_id, user_id):
-    """Delete a user"""
     try:
         db = get_db()
         cursor = db.cursor()
         
-        # Check if user exists
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
         
         if not user:
             return jsonify({"error": "User not found"}), 404
         
-        # Delete user's hobbies
         cursor.execute("DELETE FROM hobbies WHERE user_id = ?", (user_id,))
         
-        # Delete user
         cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
         
         db.commit()
@@ -644,21 +523,17 @@ def delete_user(auth_user_id, user_id):
         logger.error(f"Error deleting user {user_id}: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-# --- Legacy endpoint for backward compatibility ---
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Legacy prediction endpoint - redirects to user creation"""
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
-    # Transform legacy payload format to new format
     new_data = {
         "name": data.get('name', ''),
         "age": data.get('age')
     }
     
-    # Optional fields
     if 'email' in data:
         new_data['email'] = data['email']
     if 'zipcode' in data:
@@ -666,14 +541,12 @@ def predict():
     if 'hobbies' in data:
         new_data['hobbies'] = data['hobbies']
     
-    # Log the legacy request
     logger.info(f"Legacy API call received: {json.dumps(data)}")
     
     try:
         db = get_db()
         cursor = db.cursor()
         
-        # Record the legacy API call for analytics
         cursor.execute(
             "INSERT INTO access_logs (endpoint, ip_address, status_code, response_time) VALUES (?, ?, ?, ?)",
             ('/predict (legacy)', request.remote_addr, 200, 0)
@@ -682,17 +555,14 @@ def predict():
     except Exception as e:
         logger.error(f"Error logging legacy API call: {str(e)}")
     
-    # Process with minimal validation (for backward compatibility)
     name = data.get('name', '')
     if not name:
         return jsonify({"error": "Name is required"}), 400
     
     logger.info(f"Processed data for: {name}")
     
-    # Return dummy response to maintain backward compatibility
     response = {"prediction": random.random(), "processed": True}
     
-    # Add legacy simulation behaviors
     if 'zipcode' in data and data['zipcode'] == '90210':
         return jsonify({"error": "Database connection error"}), 500
     

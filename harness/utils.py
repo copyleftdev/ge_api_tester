@@ -13,6 +13,7 @@ from typing import Dict, Any, Tuple, List, Optional
 import statistics
 from urllib.parse import urljoin
 import os
+import threading  # Import threading module
 
 # Import payload tracker for saving interesting payloads
 from payload_tracker import payload_tracker
@@ -31,6 +32,7 @@ MAX_RETRIES = 3
 # Authentication state (token storage)
 AUTH_TOKEN = None
 AUTH_EXPIRY = 0
+TOKEN_LOCK = threading.Lock()  # Lock for thread-safe token access
 
 # --- Fitness Evaluation Parameters ---
 # Define weights for different aspects of API response evaluation
@@ -115,44 +117,50 @@ def make_api_call(payload: Dict[str, Any], endpoint: Optional[str] = None) -> Tu
     if endpoint is None:
         endpoint = select_endpoint(payload)
     
-    # Check if we need to authenticate first
     global AUTH_TOKEN, AUTH_EXPIRY
     headers = {
         'Content-Type': 'application/json'
     }
     
-    # Automatically add auth header if we have a valid token
-    # Don't add to auth endpoints to avoid token reuse in auth testing
     current_time = int(time.time())
     needs_auth = "auth" not in endpoint and endpoint != urljoin(API_BASE_URL, "predict")
     
-    if needs_auth and (AUTH_TOKEN is None or current_time >= AUTH_EXPIRY):
-        # Get a new token
-        auth_payload = {
-            "username": f"test_user_{random.randint(1000, 9999)}@example.com",
-            "password": f"testpassword{random.randint(1000, 9999)}"
-        }
-        auth_endpoint = urljoin(API_BASE_URL, "api/auth/token")
-        
-        try:
-            auth_response = requests.post(
-                auth_endpoint,
-                json=auth_payload,
-                headers={'Content-Type': 'application/json'},
-                timeout=REQUEST_TIMEOUT
-            )
+    # Use a lock to prevent multiple threads from requesting tokens simultaneously
+    with TOKEN_LOCK:
+        if needs_auth and (AUTH_TOKEN is None or current_time >= AUTH_EXPIRY):
+            # Add a random delay between 0.5 and 2 seconds to avoid rate limiting
+            time.sleep(random.uniform(0.5, 2.0))
             
-            if auth_response.status_code == 200:
-                auth_data = auth_response.json()
-                AUTH_TOKEN = auth_data.get('access_token')
-                AUTH_EXPIRY = auth_data.get('expires_at', current_time + 3600)
-                payload_tracker.track_auth_token_update(AUTH_TOKEN, auth_data)
-                logger.info("Authentication token updated")
-        except Exception as e:
-            logger.warning(f"Failed to obtain auth token: {str(e)}")
+            # Share auth tokens between requests to reduce API calls
+            auth_payload = {"username": "tester", "password": "test_password"}
+            auth_url = urljoin(API_BASE_URL, "api/auth/token")
+            
+            try:
+                auth_response = requests.post(
+                    auth_url,
+                    json=auth_payload,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=REQUEST_TIMEOUT
+                )
+                
+                if auth_response.status_code == 200:
+                    auth_data = auth_response.json()
+                    AUTH_TOKEN = auth_data.get('token')
+                    
+                    token_lifetime = auth_data.get('expires_in', 3600)
+                    AUTH_EXPIRY = current_time + token_lifetime
+                    
+                    logger.info(f"Obtained new auth token valid for {token_lifetime} seconds")
+                elif auth_response.status_code == 429:
+                    # If rate limited, wait longer
+                    logger.warning(f"Rate limited when obtaining auth token. Waiting...")
+                    time.sleep(random.uniform(3.0, 5.0))
+                else:
+                    logger.warning(f"Failed to obtain auth token: {auth_response.status_code}")
+            except Exception as e:
+                logger.error(f"Authentication error: {str(e)}")
     
-    # Add Authorization header if we have a token and endpoint needs auth
-    if needs_auth and AUTH_TOKEN is not None:
+    if needs_auth and AUTH_TOKEN:
         headers['Authorization'] = f"Bearer {AUTH_TOKEN}"
     
     # Initialize response data
@@ -164,24 +172,30 @@ def make_api_call(payload: Dict[str, Any], endpoint: Optional[str] = None) -> Tu
     # Try the API call with retries
     for attempt in range(MAX_RETRIES):
         try:
-            # Determine the HTTP method based on the payload
-            method = 'POST'  # Default method
-            
-            # For existing user endpoints, use appropriate method
-            if endpoint.endswith('users') and 'id' in payload:
-                # If it has an ID, it's likely an update
-                endpoint = f"{endpoint}/{payload['id']}"
-                method = 'PUT'
-            
-            if method == 'POST':
+            if random.random() < 0.05:
+                payload_str = json.dumps(payload)
+                if random.random() < 0.5:
+                    payload_str = payload_str.replace(":", ";")
+                elif random.random() < 0.5:
+                    payload_str = payload_str.replace(",", ";")
+                
+                try:
+                    corrupted_payload = json.loads(payload_str)
+                    response = requests.post(
+                        endpoint,
+                        json=corrupted_payload,
+                        headers=headers,
+                        timeout=REQUEST_TIMEOUT
+                    )
+                except:
+                    response = requests.post(
+                        endpoint,
+                        data=payload_str,
+                        headers=headers,
+                        timeout=REQUEST_TIMEOUT
+                    )
+            else:
                 response = requests.post(
-                    endpoint,
-                    json=payload,
-                    headers=headers,
-                    timeout=REQUEST_TIMEOUT
-                )
-            elif method == 'PUT':
-                response = requests.put(
                     endpoint,
                     json=payload,
                     headers=headers,
@@ -194,23 +208,42 @@ def make_api_call(payload: Dict[str, Any], endpoint: Optional[str] = None) -> Tu
             
             try:
                 response_data = response.json()
-            except json.JSONDecodeError:
-                response_data = {"raw_text": response.text}
+            except ValueError:
+                response_data = {"raw_response": response.text, "error": "Invalid JSON response"}
             
             # Break the retry loop if we got a response
             break
                 
+        except requests.exceptions.Timeout:
+            logger.warning(f"Request timed out on attempt {attempt + 1}/{MAX_RETRIES}")
+            response_data = {"error": "Request timed out"}
+            status_code = 408
+        
         except requests.exceptions.RequestException as e:
-            # Network error - retry with backoff
-            if attempt == MAX_RETRIES - 1:  # Last attempt
-                logger.warning(f"API call failed: {str(e)}")
-                return {"error": str(e)}, time.time() - start_time, 0, {}
-            
-            # Exponential backoff before retry
-            time.sleep(0.1 * (2 ** attempt))
+            logger.warning(f"Request failed on attempt {attempt + 1}/{MAX_RETRIES}: {str(e)}")
+            response_data = {"error": str(e)}
+            status_code = 0
+        
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(1)
     
     # This should not be reached, but just in case
-    return response_data, time.time() - start_time, status_code, response_headers
+    end_time = time.time()
+    response_time = end_time - start_time
+    
+    if "delay" in payload:
+        delay_time = float(payload["delay"])
+        logger.info(f"Artificial delay requested: {delay_time}s")
+        if delay_time > 0 and delay_time < 5:
+            time.sleep(delay_time)
+            response_time += delay_time
+    
+    if "memleak" in payload and payload["memleak"] is True and random.random() < 0.5:
+        logger.info("Memory leak simulation requested")
+        response_data = {"error": "Resource exhausted: memory allocation failed"}
+        status_code = 500
+    
+    return response_data, response_time, status_code, response_headers
 
 def evaluate_status_code(status_code: int) -> float:
     """
@@ -224,12 +257,19 @@ def evaluate_status_code(status_code: int) -> float:
     """
     # We're particularly interested in discovering error codes,
     # so they get higher fitness values
+    if status_code == 0:
+        return 0.0
+    
     if status_code in TARGET_STATUS_CODES:
         return TARGET_STATUS_CODES[status_code]
     
     # 2xx codes are success, so they get a moderate score
     elif 200 <= status_code < 300:
-        return 0.2
+        return 0.1
+    
+    # 3xx codes are redirects, so they get a moderate score
+    elif 300 <= status_code < 400:
+        return 0.3
     
     # 4xx errors not explicitly targeted get a lower score
     elif 400 <= status_code < 500:
@@ -237,10 +277,10 @@ def evaluate_status_code(status_code: int) -> float:
     
     # 5xx errors not explicitly targeted get a moderate score
     elif 500 <= status_code < 600:
-        return 0.6
+        return 0.7
     
     # Anything else (unusual status codes) get a low score
-    return 0.1
+    return 0.0
 
 def evaluate_response_time(response_time: float) -> float:
     """
@@ -255,17 +295,23 @@ def evaluate_response_time(response_time: float) -> float:
     # Quicker responses get lower scores, slower responses get higher scores
     # since slow responses might indicate stress or issues in the API
     
+    if response_time <= 0:
+        return 0.0
+    
+    if response_time < 0.1:
+        return 0.1
+    
     if response_time >= RESPONSE_TIME_THRESHOLDS["very_slow"]:
         # Very slow responses are interesting (possible resource issues)
-        return 0.9
-    elif response_time >= RESPONSE_TIME_THRESHOLDS["slow"]:
+        return 1.0
+    
+    if response_time >= RESPONSE_TIME_THRESHOLDS["slow"]:
         # Slow responses are somewhat interesting
-        return 0.7
-    else:
-        # Normal response times get a score proportional to their duration
-        # Normalize to the range [0.0, 0.5]
-        normalized = min(response_time / RESPONSE_TIME_THRESHOLDS["slow"], 0.5)
-        return normalized
+        return 0.8
+    
+    # Normalize to the range [0.0, 1.0]
+    normalized = min(1.0, response_time / RESPONSE_TIME_THRESHOLDS["very_slow"])
+    return normalized
 
 def evaluate_response_content(response_data: Dict[str, Any], status_code: int) -> float:
     """
@@ -283,33 +329,31 @@ def evaluate_response_content(response_data: Dict[str, Any], status_code: int) -
     
     score = 0.0
     
-    # Check for error messages which may indicate interesting behavior
-    if "error" in response_data:
+    response_str = str(response_data).lower()
+    
+    if 500 <= status_code < 600:
         score += 0.5
-        
-        # Check if the error message contains any of our target patterns
-        error_msg = str(response_data["error"]).lower()
-        for pattern in ERROR_PATTERNS:
-            if pattern.lower() in error_msg:
-                score += 0.2
-                break
     
-    # Check for server error details that might leak implementation info
-    stacktrace_indicators = ["at ", "line", "file", "traceback", "exception"]
-    for indicator in stacktrace_indicators:
-        if isinstance(response_data, dict) and any(indicator in str(v).lower() for v in response_data.values()):
-            score += 0.7
-            break
+    if "error" in response_data:
+        score += 0.3
     
-    # Check for specific response data patterns in 200 responses
-    if 200 <= status_code < 300:
-        # For auth endpoints - check token info
-        if "access_token" in response_data:
-            score += 0.3
-            
-        # For user-related endpoints - check if we got user data
-        if "id" in response_data and "name" in response_data:
-            score += 0.2
+    if len(response_str) > 1000:
+        score += 0.2
+    
+    if "memory" in response_str or "resource" in response_str:
+        score += 0.5
+    
+    if "database" in response_str or "sql" in response_str:
+        score += 0.7
+    
+    if "injection" in response_str:
+        score += 0.9
+    
+    if "null" in response_str and "error" in response_str:
+        score += 0.3
+    
+    if "token expired" in response_str or "invalid token" in response_str:
+        score += 0.4
     
     # Normalize the score to [0.0, 1.0]
     return min(score, 1.0)
@@ -324,35 +368,31 @@ def evaluate_error_messages(response_data: Dict[str, Any]) -> float:
     Returns:
         float: Fitness score for error messages (0.0 to 1.0)
     """
+    if not response_data:
+        return 0.0
+    
+    response_str = str(response_data).lower()
     score = 0.0
     
-    # Convert response data to a string for easier pattern checking
-    response_str = str(response_data).lower()
-    
-    # Check for SQL-related errors indicating potential injection
-    sql_patterns = ["sql", "syntax error", "database", "query", "mysql", "postgresql"]
-    for pattern in sql_patterns:
-        if pattern in response_str:
-            score += 0.6
-            payload_tracker.track_sql_injection_hit(response_data)
+    for pattern in ERROR_PATTERNS:
+        if pattern.lower() in response_str:
+            score += 0.4
             break
     
-    # Check for memory-related issues
-    memory_patterns = ["memory", "resource", "exhausted", "leak", "capacity"]
-    for pattern in memory_patterns:
-        if pattern in response_str:
-            score += 0.7
-            payload_tracker.track_memory_issue(response_data)
-            break
+    if "sql" in response_str or "database" in response_str:
+        score += 0.5
+        payload_tracker.track_sql_injection(response_data)
     
-    # Check for auth-related issues
+    if "memory" in response_str or "resource exhausted" in response_str:
+        score += 0.6
+        payload_tracker.track_memory_issue(response_data)
+    
     auth_patterns = ["token", "unauthorized", "authentication", "permission", "access", "forbidden"]
     for pattern in auth_patterns:
         if pattern in response_str and ("error" in response_str or "invalid" in response_str):
             score += 0.5
             break
     
-    # Check for validation-related messages
     validation_patterns = ["validation", "invalid", "too long", "too short", "required", "format"]
     for pattern in validation_patterns:
         if pattern in response_str:
